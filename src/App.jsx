@@ -7,12 +7,13 @@ import CodeEditor from './components/CodeEditor';
 import PreviewView from './components/PreviewView';
 
 export default function App() {
-  const { activeTab, initVFS } = useIDEStore();
+  const { activeTab, initVFS, initChatHistory } = useIDEStore();
 
   useEffect(() => {
-    // Load persisted files from IndexedDB on initial mount
+    // Load persisted files and chat history from IndexedDB on initial mount
     initVFS();
-  }, [initVFS]);
+    initChatHistory();
+  }, [initVFS, initChatHistory]);
 
   return (
     <div className="flex flex-col h-[100dvh] w-full bg-white select-none">

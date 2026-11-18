@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { initialFiles, saveVFS, loadVFS } from '../services/vfsStorage';
+import { loadChatHistory, saveChatHistory, clearChatHistory, initialMessages } from '../services/chatStorage';
 
 export const useIDEStore = create((set, get) => ({
   // Active Navigation Mode: 'chat' | 'files' | 'code' | 'preview'
@@ -30,22 +31,33 @@ export const useIDEStore = create((set, get) => ({
   isStreaming: false,
   setIsStreaming: (val) => set({ isStreaming: val }),
 
-  // Chat & Agent State
-  messages: [
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: "Ready when you are. Tell me what application you want to build, and I'll plan the architecture, write the code, and spin up a live preview right here on your phone.",
+  // Chat & Persistent History State
+  messages: initialMessages,
+  initChatHistory: async () => {
+    const loaded = await loadChatHistory();
+    set({ messages: loaded });
+  },
+  addMessage: (msg) => {
+    const newMsg = {
+      ...msg,
+      id: msg.id || Math.random().toString(36).substring(7),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ],
-  addMessage: (msg) => set((state) => ({ 
-    messages: [...state.messages, { ...msg, id: msg.id || Math.random().toString(36).substring(7), timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }] 
-  })),
+    };
+    const updated = [...get().messages, newMsg];
+    set({ messages: updated });
+    saveChatHistory(updated);
+  },
 
-  updateStreamingMessage: (id, chunk) => set((state) => ({
-    messages: state.messages.map((m) => m.id === id ? { ...m, content: chunk } : m)
-  })),
+  updateStreamingMessage: (id, chunk) => {
+    const updated = get().messages.map((m) => m.id === id ? { ...m, content: chunk } : m);
+    set({ messages: updated });
+    saveChatHistory(updated);
+  },
+
+  clearChat: async () => {
+    const reset = await clearChatHistory();
+    set({ messages: reset });
+  },
 
   // Development Phases State
   planningPhase: {

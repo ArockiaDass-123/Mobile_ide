@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useIDEStore } from '../store/ideStore';
-import { Plus, Mic, MicOff, ArrowUp, Sparkles, CheckCircle2, ChevronRight, Layers, Loader2 } from 'lucide-react';
+import { Plus, Mic, MicOff, ArrowUp, Sparkles, CheckCircle2, ChevronRight, Layers, Loader2, Trash2 } from 'lucide-react';
 import { streamAICompletion } from '../services/aiEngine';
 import { generateTailoredApp } from '../services/templateGenerator';
 
@@ -9,6 +9,7 @@ export default function ChatView() {
     messages,
     addMessage,
     updateStreamingMessage,
+    clearChat,
     planningPhase,
     setPlanningPhase,
     setActiveTab,
@@ -260,6 +261,22 @@ Make the UI rich, modern, responsive, with beautiful Tailwind CSS colors and int
     <div className="flex flex-col h-[calc(100dvh-3.5rem)] bg-white max-w-4xl mx-auto w-full relative">
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-28">
+        {/* Chat History Controls Bar */}
+        {messages.length > 1 && (
+          <div className="flex items-center justify-between py-1 px-2 border-b border-gray-100 text-[11px] text-gray-400">
+            <span>Conversation History Saved</span>
+            <button
+              onClick={() => {
+                if (confirm('Clear current chat history?')) clearChat();
+              }}
+              className="flex items-center gap-1 hover:text-red-500 transition cursor-pointer"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Clear History</span>
+            </button>
+          </div>
+        )}
+
         {messages.map((msg) => (
           <div
             key={msg.id}
