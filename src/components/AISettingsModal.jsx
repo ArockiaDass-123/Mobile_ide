@@ -68,15 +68,34 @@ export default function AISettingsModal({ isOpen, onClose }) {
 
         {/* Custom Endpoint (for Ollama or Self-hosted) */}
         {aiConfig.provider === 'ollama' && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-gray-700">Ollama Base URL</label>
-            <input
-              type="text"
-              placeholder="http://localhost:11434/v1 or ngrok tunnel"
-              value={aiConfig.customBaseUrl || ''}
-              onChange={(e) => setAIConfig({ ...aiConfig, customBaseUrl: e.target.value })}
-              className="w-full text-xs bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-blue-500 text-gray-800 font-mono"
-            />
+          <div className="flex flex-col gap-2 p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-slate-800">Ollama Model</label>
+              <select
+                value={aiConfig.model || 'llama3.2'}
+                onChange={(e) => setAIConfig({ ...aiConfig, model: e.target.value })}
+                className="w-full text-xs bg-white border border-gray-200 rounded-xl px-3 py-2 outline-none font-mono"
+              >
+                <option value="llama3.2">Llama 3.2 (Mobile & Edge)</option>
+                <option value="qwen2.5-coder">Qwen 2.5 Coder (Best for Coding)</option>
+                <option value="deepseek-r1">DeepSeek R1 (Reasoning)</option>
+                <option value="codellama">CodeLlama</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-slate-800">Ollama Endpoint URL</label>
+              <input
+                type="text"
+                placeholder="http://10.0.2.2:11434/v1 or Ngrok/Tunnel URL"
+                value={aiConfig.customBaseUrl || ''}
+                onChange={(e) => setAIConfig({ ...aiConfig, customBaseUrl: e.target.value })}
+                className="w-full text-xs bg-white border border-gray-200 rounded-xl px-3 py-2 outline-none font-mono"
+              />
+              <p className="text-[10px] text-slate-500 leading-tight">
+                Tip: Run <code className="bg-slate-200 px-1 rounded">ollama run qwen2.5-coder</code> on your PC/Termux and enter your local IP or cloudflare tunnel URL.
+              </p>
+            </div>
           </div>
         )}
 

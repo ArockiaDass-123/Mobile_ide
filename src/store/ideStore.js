@@ -23,7 +23,7 @@ export const useIDEStore = create((set, get) => ({
     provider: 'gemini',
     apiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
     customBaseUrl: '',
-    model: 'gemini-3.8-flash'
+    model: 'gemini-3.5-flash'
   },
   setAIConfig: (cfg) => set({ aiConfig: cfg }),
 

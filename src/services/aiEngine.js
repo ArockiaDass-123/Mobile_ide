@@ -5,12 +5,19 @@
 
 export const AI_PROVIDERS = {
   gemini: {
-    name: 'Google Gemini (Gemini 3.8 Flash - Active & Connected)',
+    name: 'Google Gemini (Gemini 3.5 Flash - Stable & Fast)',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    defaultModel: 'gemini-3.8-flash'
+    defaultModel: 'gemini-3.5-flash',
+    fallbackModels: ['gemini-3.1-flash-lite', 'gemini-3.8-flash']
+  },
+  ollama: {
+    name: 'Ollama (Local / Mobile Termux / Remote URL)',
+    baseUrl: 'http://localhost:11434/v1',
+    defaultModel: 'llama3.2',
+    models: ['llama3.2', 'qwen2.5-coder', 'deepseek-r1', 'codellama']
   },
   groq: {
-    name: 'Groq (Llama 3.3 70B - Fast & Free tier)',
+    name: 'Groq (Llama 3.3 70B - High Speed)',
     baseUrl: 'https://api.groq.com/openai/v1',
     defaultModel: 'llama-3.3-70b-versatile'
   },
@@ -23,11 +30,6 @@ export const AI_PROVIDERS = {
     name: 'OpenAI (GPT-4o-mini)',
     baseUrl: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o-mini'
-  },
-  ollama: {
-    name: 'Ollama (Local / Custom URL)',
-    baseUrl: 'http://localhost:11434/v1',
-    defaultModel: 'llama3.2'
   }
 };
 
@@ -69,78 +71,94 @@ export async function streamAICompletion({
 }) {
   const providerConfig = AI_PROVIDERS[provider] || AI_PROVIDERS.gemini;
   const endpoint = `${customBaseUrl || providerConfig.baseUrl}/chat/completions`;
-  const selectedModel = model || providerConfig.defaultModel;
+  const primaryModel = model || providerConfig.defaultModel;
 
-  const headers = {
-    'Content-Type': 'application/json'
-  };
+  const candidateModels = provider === 'gemini' 
+    ? [primaryModel, ...(providerConfig.fallbackModels || [])]
+    : [primaryModel];
 
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
+  let lastError = null;
 
-  const payload = {
-    model: selectedModel,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      ...messages
-    ],
-    temperature: 0.3,
-    stream: true
-  };
+  for (const currentModel of candidateModels) {
+    try {
+      const headers = {
+        'Content-Type': 'application/json'
+      };
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    });
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`API Error (${response.status}): ${errText}`);
-    }
+      const payload = {
+        model: currentModel,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          ...messages
+        ],
+        temperature: 0.3,
+        stream: true
+      };
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let fullText = '';
-    let buffer = '';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      });
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      if (!response.ok) {
+        const errText = await response.text();
+        // If 503 (Overloaded) or 404, try next candidate model
+        if ((response.status === 503 || response.status === 404) && candidateModels.length > 1) {
+          console.warn(`Model ${currentModel} failed with ${response.status}. Trying next fallback model...`);
+          lastError = new Error(`Model ${currentModel} returned ${response.status}: ${errText}`);
+          continue;
+        }
+        throw new Error(`API Error (${response.status}): ${errText}`);
+      }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep last incomplete line
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let fullText = '';
+      let buffer = '';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data: ')) continue;
-        const jsonStr = trimmed.replace('data: ', '');
-        if (jsonStr === '[DONE]') break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const delta = parsed.choices?.[0]?.delta?.content || '';
-          if (delta) {
-            fullText += delta;
-            onChunk(delta, fullText);
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const jsonStr = trimmed.replace('data: ', '');
+          if (jsonStr === '[DONE]') break;
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const delta = parsed.choices?.[0]?.delta?.content || '';
+            if (delta) {
+              fullText += delta;
+              onChunk(delta, fullText);
+            }
+          } catch (e) {
+            // ignore chunk parse issues
           }
-        } catch (e) {
-          // ignore chunk parse issues
         }
       }
+
+      parseToolCalls(fullText, onToolCall);
+      return fullText;
+    } catch (err) {
+      lastError = err;
+      if (candidateModels.indexOf(currentModel) === candidateModels.length - 1) {
+        throw lastError;
+      }
     }
-
-    // Inspect if any tool calls are present in fullText
-    parseToolCalls(fullText, onToolCall);
-
-    return fullText;
-  } catch (error) {
-    console.error('AI Stream Error:', error);
-    throw error;
   }
+
+  throw lastError || new Error('All model endpoints unavailable.');
 }
 
 /**
