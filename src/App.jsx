@@ -1,0 +1,31 @@
+import React, { useEffect } from 'react';
+import { useIDEStore } from './store/ideStore';
+import Header from './components/Header';
+import ChatView from './components/ChatView';
+import FileExplorer from './components/FileExplorer';
+import CodeEditor from './components/CodeEditor';
+import PreviewView from './components/PreviewView';
+
+export default function App() {
+  const { activeTab, initVFS } = useIDEStore();
+
+  useEffect(() => {
+    // Load persisted files from IndexedDB on initial mount
+    initVFS();
+  }, [initVFS]);
+
+  return (
+    <div className="flex flex-col h-[100dvh] w-full bg-white select-none">
+      {/* Universal Top Header */}
+      <Header />
+
+      {/* Main View Area switched by active tab */}
+      <main className="flex-1 overflow-hidden relative">
+        {activeTab === 'chat' && <ChatView />}
+        {activeTab === 'files' && <FileExplorer />}
+        {activeTab === 'code' && <CodeEditor />}
+        {activeTab === 'preview' && <PreviewView />}
+      </main>
+    </div>
+  );
+}
