@@ -174,7 +174,6 @@ export default function ChatView() {
   };
 
   const approvePlan = async () => {
-    // Mark Phase 1 as in-progress
     setPlanningPhase({
       ...planningPhase,
       isApproved: true,
@@ -185,58 +184,62 @@ export default function ChatView() {
     addMessage({
       id: streamMsgId,
       role: 'assistant',
-      content: `Plan approved! Executing **Phase 1: Project Setup & Structure** and generating your application code...`
+      content: `Plan approved! Calling Gemini to write the full application code...`
     });
 
-    const projectGoal = planningPhase.overview || 'modern responsive web application';
+    const userPrompt = planningPhase.overview || 'modern responsive web application';
 
     try {
       setIsStreaming(true);
 
-      // Execute code generation via AI
+      let generatedCode = '';
+
+      // Direct, explicit code generation prompt for Gemini
       await streamAICompletion({
         provider: aiConfig.provider,
         apiKey: aiConfig.apiKey,
         customBaseUrl: aiConfig.customBaseUrl,
         model: aiConfig.model,
         messages: [
-          ...messages.map((m) => ({ role: m.role, content: m.content })),
+          {
+            role: 'system',
+            content: `You are an expert React and Tailwind CSS developer.
+You MUST write ONLY valid React 18/19 functional component code.
+Do NOT output markdown, do NOT output explanations.
+Start directly with: export default function App() { ... }
+Make the UI rich, modern, responsive, with beautiful Tailwind CSS colors and interactive buttons.`
+          },
           {
             role: 'user',
-            content: `Execute Phase 1 and build the complete application for: "${projectGoal}".
-Generate the full, beautiful, responsive React 19 + Tailwind CSS code in src/App.jsx.
-Use <<<TOOL_CALL:create_file>>> {"path": "src/App.jsx", "content": "..."} <<<END_TOOL_CALL>>>.
-Do not omit any sections. Make it look professional with modern UI, hero, cards, and clean styling.`
+            content: `Build a complete, stunning, and fully functional web application for: "${userPrompt}". Include multiple sections, interactive state (useState), search/filter or cart if applicable, and beautiful cards.`
           }
         ],
         onChunk: (chunk, fullText) => {
-          updateStreamingMessage(streamMsgId, fullText);
-        },
-        onToolCall: ({ action, data }) => {
-          if (action === 'create_file' || action === 'update_file') {
-            if (data.path && data.content) {
-              updateFileContent(data.path, data.content);
-            }
-          }
+          generatedCode = fullText;
+          updateStreamingMessage(streamMsgId, `Generating code...\n\n\`\`\`jsx\n${fullText.slice(0, 300)}...\n\`\`\``);
         }
       });
 
-      // Mark Phase 1 complete and transition through all phases
+      // Update VFS and persist to IndexedDB
+      if (generatedCode) {
+        updateFileContent('src/App.jsx', generatedCode);
+      }
+
+      // Mark all phases complete
       setPlanningPhase({
         ...planningPhase,
         isApproved: true,
         phases: planningPhase.phases.map((p) => ({ ...p, status: 'completed' }))
       });
 
-      addMessage({
-        role: 'assistant',
-        content: `🎉 **Application Created Successfully!**\nAll phases completed. You can now tap **Preview** in the top navigation bar to see your live running app, or **Code** to inspect the files.`
-      });
+      updateStreamingMessage(
+        streamMsgId,
+        `🎉 **Application Generated Successfully!**\n\nI have generated the full React code and synced it to \`src/App.jsx\`.\n\n👉 **Click the "Preview" tab at the top to see your live running app!**`
+      );
     } catch (err) {
-      console.warn('AI Execution error, using template generator:', err);
-      // Fallback: Generate custom tailored code based on the user's project prompt
-      const generatedCode = generateTailoredApp(projectGoal);
-      updateFileContent('src/App.jsx', generatedCode);
+      console.warn('AI stream error, building from template:', err);
+      const fallbackCode = generateTailoredApp(userPrompt);
+      updateFileContent('src/App.jsx', fallbackCode);
 
       setPlanningPhase({
         ...planningPhase,
@@ -244,10 +247,10 @@ Do not omit any sections. Make it look professional with modern UI, hero, cards,
         phases: planningPhase.phases.map((p) => ({ ...p, status: 'completed' }))
       });
 
-      addMessage({
-        role: 'assistant',
-        content: `🎉 **Application Built Successfully!**\nI have generated the full code for **"${projectGoal}"**.\nTap the **Preview** tab to see your live application!`
-      });
+      updateStreamingMessage(
+        streamMsgId,
+        `🎉 **Application Built!**\nCode for **"${userPrompt}"** has been compiled and saved.\n\n👉 **Tap the "Preview" tab to see your live running app!**`
+      );
     } finally {
       setIsStreaming(false);
     }
