@@ -10,6 +10,13 @@ export default defineConfig({
   ],
   server: {
     port: 3000,
-    host: true // listen on all network interfaces for mobile testing
+    host: true,
+    proxy: {
+      '/api/ollama': {
+        target: 'http://127.0.0.1:11434',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/ollama/, '')
+      }
+    }
   }
 });

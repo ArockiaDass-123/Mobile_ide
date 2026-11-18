@@ -19,12 +19,12 @@ export const useIDEStore = create((set, get) => ({
   },
   setCurrentProject: (proj) => set({ currentProject: proj }),
 
-  // AI Provider & Credentials Configuration
+  // AI Provider & Credentials Configuration (Default: Qwen 2.5 Coder)
   aiConfig: {
-    provider: 'gemini',
-    apiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
-    customBaseUrl: '',
-    model: 'gemini-3.5-flash'
+    provider: 'ollama',
+    apiKey: '',
+    customBaseUrl: 'http://127.0.0.1:11434',
+    model: 'qwen2.5-coder:1.5b'
   },
   setAIConfig: (cfg) => set({ aiConfig: cfg }),
 

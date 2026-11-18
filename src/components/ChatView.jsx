@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useIDEStore } from '../store/ideStore';
-import { Plus, Mic, MicOff, ArrowUp, Sparkles, CheckCircle2, ChevronRight, Layers, Loader2, Trash2 } from 'lucide-react';
-import { streamAICompletion } from '../services/aiEngine';
-import { generateTailoredApp } from '../services/templateGenerator';
+import { Plus, Mic, MicOff, ArrowUp, Sparkles, CheckCircle2, ChevronRight, Layers, Loader2, Trash2, ChevronDown } from 'lucide-react';
+import { generateAppCode } from '../services/multiModelService';
 
 export default function ChatView() {
   const {
@@ -14,16 +13,37 @@ export default function ChatView() {
     setPlanningPhase,
     setActiveTab,
     aiConfig,
+    setAIConfig,
     isStreaming,
     setIsStreaming,
     updateFileContent
   } = useIDEStore();
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Auto-scroll to bottom of chat
+  const availableModels = [
+    { provider: 'ollama', model: 'qwen2.5-coder:1.5b', label: 'Qwen 2.5 Coder (Fast & Local)' },
+    { provider: 'gemini', model: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+    { provider: 'gemini', model: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
+    { provider: 'ollama', model: 'phi3:mini', label: 'Ollama phi3:mini' }
+  ];
+
+  const currentSelected = availableModels.find(
+    (m) => m.provider === aiConfig.provider && m.model === aiConfig.model
+  ) || availableModels[0];
+
+  const handleModelSelect = (m) => {
+    setAIConfig({
+      ...aiConfig,
+      provider: m.provider,
+      model: m.model
+    });
+    setIsModelDropdownOpen(false);
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -32,7 +52,6 @@ export default function ChatView() {
     scrollToBottom();
   }, [messages, planningPhase]);
 
-  // Adjust textarea height dynamically to prevent keyboard overflow on mobile
   const handleInputChange = (e) => {
     setInput(e.target.value);
     if (textareaRef.current) {
@@ -41,7 +60,6 @@ export default function ChatView() {
     }
   };
 
-  // Voice Input (Web Speech API for Android Mobile Chrome)
   const toggleSpeechRecognition = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -75,14 +93,12 @@ export default function ChatView() {
     }
   };
 
-  // Helper to detect if a prompt is an explicit project creation request
   const isProjectCreationRequest = (text) => {
     const lower = text.toLowerCase().trim();
-    // Common conversational greetings
-    const greetings = ['hi', 'hello', 'hey', 'vanakkam', 'hai', 'hola', 'good morning', 'good afternoon', 'good evening'];
+    const greetings = ['hi', 'hello', 'hey', 'vanakkam', 'hai', 'hola'];
     if (greetings.includes(lower)) return false;
 
-    const buildKeywords = ['build', 'create', 'make', 'develop', 'generate', 'code', 'add', 'portfolio', 'website', 'app', 'design', 'clone', 'dashboard'];
+    const buildKeywords = ['build', 'create', 'make', 'develop', 'generate', 'code', 'add', 'portfolio', 'website', 'app', 'design', 'clone', 'dashboard', 'store', 'landing'];
     return buildKeywords.some((kw) => lower.includes(kw));
   };
 
@@ -100,81 +116,55 @@ export default function ChatView() {
       textareaRef.current.style.height = 'auto';
     }
 
-    // Call live AI Engine with streaming for all messages
-    setIsStreaming(true);
-    const streamMsgId = 'stream_' + Date.now();
+    const streamMsgId = 'msg_' + Date.now();
     addMessage({
       id: streamMsgId,
       role: 'assistant',
-      content: '...'
+      content: 'Thinking...'
     });
 
-    try {
-      await streamAICompletion({
-        provider: aiConfig.provider,
-        apiKey: aiConfig.apiKey,
-        customBaseUrl: aiConfig.customBaseUrl,
-        model: aiConfig.model,
-        messages: [
-          ...messages.map((m) => ({ role: m.role, content: m.content })),
-          { role: 'user', content: userText }
-        ],
-        onChunk: (chunk, fullText) => {
-          updateStreamingMessage(streamMsgId, fullText);
-        },
-        onToolCall: ({ action, data }) => {
-          if (action === 'create_file' || action === 'update_file') {
-            if (data.path && data.content) {
-              updateFileContent(data.path, data.content);
-            }
-          }
-        }
-      });
+    setIsStreaming(true);
 
-      // If user explicitly asked to build an app, populate the planning roadmap
-      if (isProjectCreationRequest(userText)) {
+    try {
+      if (!isProjectCreationRequest(userText)) {
+        const reply = await generateAppCode({
+          provider: aiConfig.provider,
+          model: aiConfig.model,
+          apiKey: aiConfig.apiKey,
+          prompt: `You are an AI assistant. Reply to the user's greeting nicely in 1-2 sentences: "${userText}"`
+        });
+        updateStreamingMessage(streamMsgId, reply || 'Hello! How can I help you build your application today?');
+      } else {
         setPlanningPhase({
           isActive: true,
           isApproved: false,
-          overview: `Architecture roadmap for: "${userText}"`,
-          techStack: ['React 19', 'Tailwind CSS', 'Vite', 'Lucide Icons'],
+          overview: userText,
+          techStack: ['React 18', 'Tailwind CSS', `${currentSelected.label}`],
           phases: [
-            { id: 1, title: 'Phase 1: Project Skeleton & Layout', status: 'ready', description: 'Configure layout container, theme tokens, and navigation.' },
-            { id: 2, title: 'Phase 2: Core Components & Functionality', status: 'pending', description: 'Build interactive cards, forms, and business logic.' },
-            { id: 3, title: 'Phase 3: Runtime Verification & Live Preview', status: 'pending', description: 'Compile preview sandbox and verify zero runtime errors.' }
+            { id: 1, title: 'Phase 1: Project Setup & Structure', status: 'ready', description: 'Configure React components and layout.' },
+            { id: 2, title: 'Phase 2: UI & Features', status: 'pending', description: 'Build interactive cards and state.' },
+            { id: 3, title: 'Phase 3: Verification', status: 'pending', description: 'Test and launch preview.' }
           ]
         });
+
+        updateStreamingMessage(
+          streamMsgId,
+          `I received your request to build: **"${userText}"** using **${currentSelected.label}**.\n\nReview the project roadmap below and tap **"Approve Plan & Begin Phase 1"** to generate the real code.`
+        );
       }
     } catch (err) {
-      // If AI fails or no key, handle conversationally
-      if (!isProjectCreationRequest(userText)) {
-        updateStreamingMessage(
-          streamMsgId,
-          `Hello! 👋 How can I help you today? Tell me what kind of app or website you would like to build, and I will code it for you.`
-        );
-      } else {
-        updateStreamingMessage(
-          streamMsgId,
-          `I received your request to build: "${userText}".\n\nI have created a project plan below. Review and tap "Approve Plan" to start coding.`
-        );
-        setPlanningPhase({
-          isActive: true,
-          isApproved: false,
-          overview: `Architecture plan for: "${userText}"`,
-          techStack: ['React 19', 'Tailwind CSS', 'Vite'],
-          phases: [
-            { id: 1, title: 'Phase 1: Project Setup & Structure', status: 'ready', description: 'Configure initial template and components.' },
-            { id: 2, title: 'Phase 2: UI & Features', status: 'pending', description: 'Build features and interactions.' },
-            { id: 3, title: 'Phase 3: Verification', status: 'pending', description: 'Verify build in preview.' }
-          ]
-        });
-      }
+      updateStreamingMessage(
+        streamMsgId,
+        `⚠️ Error: ${err.message}. Please verify your selected model settings.`
+      );
     } finally {
       setIsStreaming(false);
     }
   };
 
   const approvePlan = async () => {
+    const userPrompt = planningPhase.overview || 'modern web app';
+
     setPlanningPhase({
       ...planningPhase,
       isApproved: true,
@@ -185,73 +175,45 @@ export default function ChatView() {
     addMessage({
       id: streamMsgId,
       role: 'assistant',
-      content: `Plan approved! Calling Gemini to write the full application code...`
+      content: `⚡ Generating complete source code for **"${userPrompt}"** with Gemini...`
     });
 
-    const userPrompt = planningPhase.overview || 'modern responsive web application';
+    setIsStreaming(true);
 
     try {
-      setIsStreaming(true);
+      const prompt = `Write a complete, single-file React component function App() for: "${userPrompt}".
+Use React and Tailwind CSS.
+Include interactive state (useState), beautiful cards, and clean modern design.
+Output ONLY JavaScript/JSX code. Start directly with:
+function App() { ... }`;
 
-      let generatedCode = '';
-
-      // Direct, explicit code generation prompt for Gemini
-      await streamAICompletion({
+      const generatedCode = await generateAppCode({
         provider: aiConfig.provider,
-        apiKey: aiConfig.apiKey,
-        customBaseUrl: aiConfig.customBaseUrl,
         model: aiConfig.model,
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert React and Tailwind CSS developer.
-You MUST write ONLY valid React 18/19 functional component code.
-Do NOT output markdown, do NOT output explanations.
-Start directly with: export default function App() { ... }
-Make the UI rich, modern, responsive, with beautiful Tailwind CSS colors and interactive buttons.`
-          },
-          {
-            role: 'user',
-            content: `Build a complete, stunning, and fully functional web application for: "${userPrompt}". Include multiple sections, interactive state (useState), search/filter or cart if applicable, and beautiful cards.`
-          }
-        ],
-        onChunk: (chunk, fullText) => {
-          generatedCode = fullText;
-          updateStreamingMessage(streamMsgId, `Generating code...\n\n\`\`\`jsx\n${fullText.slice(0, 300)}...\n\`\`\``);
-        }
+        apiKey: aiConfig.apiKey,
+        prompt
       });
 
-      // Update VFS and persist to IndexedDB
       if (generatedCode) {
         updateFileContent('src/App.jsx', generatedCode);
+
+        setPlanningPhase({
+          ...planningPhase,
+          isApproved: true,
+          phases: planningPhase.phases.map((p) => ({ ...p, status: 'completed' }))
+        });
+
+        updateStreamingMessage(
+          streamMsgId,
+          `🎉 **Application Generated Successfully!**\n\nCode written to \`src/App.jsx\`.\n\n👉 **Switching to "Preview" to see your running app!**`
+        );
+
+        setTimeout(() => {
+          setActiveTab('preview');
+        }, 800);
       }
-
-      // Mark all phases complete
-      setPlanningPhase({
-        ...planningPhase,
-        isApproved: true,
-        phases: planningPhase.phases.map((p) => ({ ...p, status: 'completed' }))
-      });
-
-      updateStreamingMessage(
-        streamMsgId,
-        `🎉 **Application Generated Successfully!**\n\nI have generated the full React code and synced it to \`src/App.jsx\`.\n\n👉 **Click the "Preview" tab at the top to see your live running app!**`
-      );
     } catch (err) {
-      console.warn('AI stream error, building from template:', err);
-      const fallbackCode = generateTailoredApp(userPrompt);
-      updateFileContent('src/App.jsx', fallbackCode);
-
-      setPlanningPhase({
-        ...planningPhase,
-        isApproved: true,
-        phases: planningPhase.phases.map((p) => ({ ...p, status: 'completed' }))
-      });
-
-      updateStreamingMessage(
-        streamMsgId,
-        `🎉 **Application Built!**\nCode for **"${userPrompt}"** has been compiled and saved.\n\n👉 **Tap the "Preview" tab to see your live running app!**`
-      );
+      updateStreamingMessage(streamMsgId, `⚠️ Generation failed: ${err.message}`);
     } finally {
       setIsStreaming(false);
     }
@@ -350,7 +312,7 @@ Make the UI rich, modern, responsive, with beautiful Tailwind CSS colors and int
             {!planningPhase.isApproved ? (
               <button
                 onClick={approvePlan}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition cursor-pointer"
               >
                 <span>Approve Plan & Begin Phase 1</span>
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -360,7 +322,7 @@ Make the UI rich, modern, responsive, with beautiful Tailwind CSS colors and int
                 <span>Phase 1 implementation in progress...</span>
                 <button
                   onClick={() => setActiveTab('code')}
-                  className="underline font-semibold"
+                  className="underline font-semibold cursor-pointer"
                 >
                   View Code
                 </button>
@@ -467,6 +429,40 @@ Make the UI rich, modern, responsive, with beautiful Tailwind CSS colors and int
           >
             <Plus className="w-5 h-5" />
           </button>
+
+          {/* Model Selector Dropdown (Exact match to Image 2) */}
+          <div className="relative shrink-0 mb-1">
+            <button
+              type="button"
+              onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-medium transition cursor-pointer select-none"
+            >
+              <span>{currentSelected.label}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+            </button>
+
+            {isModelDropdownOpen && (
+              <div className="absolute bottom-full left-0 mb-2 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 p-1.5 z-50 flex flex-col gap-1 animate-in fade-in zoom-in-95">
+                <div className="text-[10px] font-semibold text-gray-400 px-2 py-1 uppercase tracking-wider">
+                  Select AI Model
+                </div>
+                {availableModels.map((m) => (
+                  <button
+                    key={m.model}
+                    onClick={() => handleModelSelect(m)}
+                    className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs text-left transition ${
+                      currentSelected.model === m.model
+                        ? 'bg-blue-50 text-blue-700 font-semibold'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span>{m.label}</span>
+                    {currentSelected.model === m.model && <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Multiline Auto-resizing Prompt Input */}
           <textarea
