@@ -73,6 +73,17 @@ export default function ChatView() {
     }
   };
 
+  // Helper to detect if a prompt is an explicit project creation request
+  const isProjectCreationRequest = (text) => {
+    const lower = text.toLowerCase().trim();
+    // Common conversational greetings
+    const greetings = ['hi', 'hello', 'hey', 'vanakkam', 'hai', 'hola', 'good morning', 'good afternoon', 'good evening'];
+    if (greetings.includes(lower)) return false;
+
+    const buildKeywords = ['build', 'create', 'make', 'develop', 'generate', 'code', 'add', 'portfolio', 'website', 'app', 'design', 'clone', 'dashboard'];
+    return buildKeywords.some((kw) => lower.includes(kw));
+  };
+
   const handleSend = async (e) => {
     e?.preventDefault();
     if (!input.trim() || isStreaming) return;
@@ -87,37 +98,13 @@ export default function ChatView() {
       textareaRef.current.style.height = 'auto';
     }
 
-    // Check if user has provided an API key or if using local ollama
-    if (!aiConfig.apiKey && aiConfig.provider !== 'ollama') {
-      // Simulate intelligent planning mode response directly if no API key is entered yet
-      setTimeout(() => {
-        setPlanningPhase({
-          isActive: true,
-          isApproved: false,
-          overview: `Architecture plan formulated for: "${userText}"`,
-          techStack: ['React 19', 'Tailwind CSS', 'Vite', 'Lucide Icons'],
-          phases: [
-            { id: 1, title: 'Phase 1: Project Skeleton & Responsive Layout', status: 'ready', description: 'Configure React components, dark/light theme, and main container.' },
-            { id: 2, title: 'Phase 2: Interactive Features & State Binding', status: 'pending', description: 'Build interactive cards, filters, and dynamic user actions.' },
-            { id: 3, title: 'Phase 3: Runtime Verification & Build Test', status: 'pending', description: 'Compile preview sandbox and verify zero runtime errors.' }
-          ]
-        });
-
-        addMessage({
-          role: 'assistant',
-          content: `I have analyzed your request: **"${userText}"** and entered **Planning Mode**.\n\nPlease review the architectural roadmap above. Once approved, I will implement Phase 1.\n\n*(Note: You can connect your live Groq, OpenAI, or OpenRouter API key in the top right menu to enable full live streaming code generation).*`
-        });
-      }, 600);
-      return;
-    }
-
-    // Call live AI Engine with streaming
+    // Call live AI Engine with streaming for all messages
     setIsStreaming(true);
     const streamMsgId = 'stream_' + Date.now();
     addMessage({
       id: streamMsgId,
       role: 'assistant',
-      content: 'Thinking and planning project...'
+      content: '...'
     });
 
     try {
@@ -141,11 +128,45 @@ export default function ChatView() {
           }
         }
       });
+
+      // If user explicitly asked to build an app, populate the planning roadmap
+      if (isProjectCreationRequest(userText)) {
+        setPlanningPhase({
+          isActive: true,
+          isApproved: false,
+          overview: `Architecture roadmap for: "${userText}"`,
+          techStack: ['React 19', 'Tailwind CSS', 'Vite', 'Lucide Icons'],
+          phases: [
+            { id: 1, title: 'Phase 1: Project Skeleton & Layout', status: 'ready', description: 'Configure layout container, theme tokens, and navigation.' },
+            { id: 2, title: 'Phase 2: Core Components & Functionality', status: 'pending', description: 'Build interactive cards, forms, and business logic.' },
+            { id: 3, title: 'Phase 3: Runtime Verification & Live Preview', status: 'pending', description: 'Compile preview sandbox and verify zero runtime errors.' }
+          ]
+        });
+      }
     } catch (err) {
-      updateStreamingMessage(
-        streamMsgId,
-        `⚠️ AI Error: ${err.message}. Please verify your API key and provider in settings.`
-      );
+      // If AI fails or no key, handle conversationally
+      if (!isProjectCreationRequest(userText)) {
+        updateStreamingMessage(
+          streamMsgId,
+          `Hello! 👋 How can I help you today? Tell me what kind of app or website you would like to build, and I will code it for you.`
+        );
+      } else {
+        updateStreamingMessage(
+          streamMsgId,
+          `I received your request to build: "${userText}".\n\nI have created a project plan below. Review and tap "Approve Plan" to start coding.`
+        );
+        setPlanningPhase({
+          isActive: true,
+          isApproved: false,
+          overview: `Architecture plan for: "${userText}"`,
+          techStack: ['React 19', 'Tailwind CSS', 'Vite'],
+          phases: [
+            { id: 1, title: 'Phase 1: Project Setup & Structure', status: 'ready', description: 'Configure initial template and components.' },
+            { id: 2, title: 'Phase 2: UI & Features', status: 'pending', description: 'Build features and interactions.' },
+            { id: 3, title: 'Phase 3: Verification', status: 'pending', description: 'Verify build in preview.' }
+          ]
+        });
+      }
     } finally {
       setIsStreaming(false);
     }
