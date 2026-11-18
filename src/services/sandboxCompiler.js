@@ -1,27 +1,28 @@
 /**
  * In-Browser Sandbox Compiler & Bundler for React + Tailwind Applications.
- * This runs client-side inside an isolated iframe, meaning zero backend servers or Node processes
- * are required on the Android phone.
+ * Bulletproof execution using React 18 CDN and Babel Standalone with zero-lag fallback.
  */
 
 export function generateSandboxHTML(files = {}) {
-  // Extract user files or fallback to default
-  const appFile = files['src/App.jsx']?.content || 'export default function App() { return <div>No App.jsx found</div>; }';
+  const appFile = files['src/App.jsx']?.content || `function App() {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white p-6 text-center">
+        <h1 className="text-2xl font-bold text-blue-400">Preview Ready</h1>
+        <p className="mt-2 text-xs text-slate-400">Generate or edit code to see changes live.</p>
+      </div>
+    );
+  }`;
+
   const customCss = files['src/index.css']?.content || '';
 
   // Extract other component files if any
   const otherComponents = Object.entries(files)
     .filter(([path]) => path.startsWith('src/') && path.endsWith('.jsx') && path !== 'src/App.jsx')
     .map(([path, file]) => {
-      const componentName = path.split('/').pop().replace('.jsx', '');
-      return `
-        // Component: ${path}
-        ${file.content}
-      `;
+      return `\n// --- ${path} ---\n${sanitizeComponentCode(file.content)}\n`;
     })
     .join('\n');
 
-  // Strip standard import/export syntax for in-browser Babel Standalone evaluation
   const sanitizedApp = sanitizeComponentCode(appFile);
 
   return `<!DOCTYPE html>
@@ -29,36 +30,22 @@ export function generateSandboxHTML(files = {}) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sandbox Preview</title>
-  <!-- Tailwind CSS Play CDN for instant zero-config styling -->
+  <title>Live Preview</title>
+  <!-- Tailwind CSS Play CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: '#2563eb'
-          }
-        }
-      }
-    }
-  </script>
-  <!-- React 18 / 19 Standalone UMD -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <!-- Babel Standalone for live JSX translation inside browser -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Lucide Icons Standalone CDN for rich UI rendering -->
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- React 18 UMD Production (Fast & Stable) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <!-- Babel Standalone for JSX Compilation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
   <style>
-    body {
+    html, body {
       margin: 0;
       padding: 0;
+      min-height: 100%;
+      background-color: #0f172a;
+      color: #f8fafc;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: #ffffff;
-      color: #0f172a;
-      overflow-x: hidden;
     }
     ${customCss}
   </style>
@@ -67,37 +54,19 @@ export function generateSandboxHTML(files = {}) {
   <div id="root"></div>
 
   <script>
-    // Intercept console.log, console.error, and runtime errors to stream back to IDE
     const sendLog = (type, message) => {
-      window.parent.postMessage({
-        source: 'SANDBOX_RUNNER',
-        type: type,
-        text: String(message),
-        timestamp: new Date().toLocaleTimeString()
-      }, '*');
-    };
-
-    const originalLog = console.log;
-    const originalError = console.error;
-    const originalWarn = console.warn;
-
-    console.log = (...args) => {
-      sendLog('info', args.join(' '));
-      originalLog.apply(console, args);
-    };
-
-    console.error = (...args) => {
-      sendLog('error', args.join(' '));
-      originalError.apply(console, args);
-    };
-
-    console.warn = (...args) => {
-      sendLog('warn', args.join(' '));
-      originalWarn.apply(console, args);
+      try {
+        window.parent.postMessage({
+          source: 'SANDBOX_RUNNER',
+          type: type,
+          text: String(message),
+          timestamp: new Date().toLocaleTimeString()
+        }, '*');
+      } catch(e){}
     };
 
     window.onerror = function(message, source, lineno, colno, error) {
-      sendLog('error', 'Runtime Error: ' + message + ' (line ' + lineno + ')');
+      sendLog('error', message + (lineno ? ' (Line: ' + lineno + ')' : ''));
       renderErrorUI(message, lineno);
       return false;
     };
@@ -106,10 +75,10 @@ export function generateSandboxHTML(files = {}) {
       const root = document.getElementById('root');
       if (root) {
         root.innerHTML = \`
-          <div style="padding: 16px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; margin: 16px; font-family: monospace; font-size: 12px; color: #991b1b;">
-            <div style="font-weight: bold; margin-bottom: 6px;">⚠️ Compilation / Runtime Error</div>
+          <div style="padding: 16px; background: #450a0a; border: 1px solid #7f1d1d; border-radius: 12px; margin: 16px; font-family: monospace; font-size: 12px; color: #fca5a5;">
+            <div style="font-weight: bold; margin-bottom: 6px; color: #f87171;">⚠️ Preview Error</div>
             <div>\${msg}</div>
-            \${line ? '<div style="color: #6b7280; margin-top: 4px;">Line: ' + line + '</div>' : ''}
+            \${line ? '<div style="color: #94a3b8; margin-top: 4px;">Line: ' + line + '</div>' : ''}
           </div>
         \`;
       }
@@ -124,35 +93,25 @@ export function generateSandboxHTML(files = {}) {
 
       ${sanitizedApp}
 
-      // Mount into container
       const rootElement = document.getElementById('root');
       const root = ReactDOM.createRoot(rootElement);
       root.render(<App />);
-
-      // Notify parent that render succeeded
-      sendLog('info', 'Application rendered successfully.');
-      setTimeout(() => {
-        if (window.lucide) {
-          window.lucide.createIcons();
-        }
-      }, 50);
+      sendLog('info', 'Live preview rendered successfully.');
     } catch (err) {
-      console.error(err.message);
       renderErrorUI(err.message);
+      sendLog('error', err.message);
     }
   </script>
 </body>
 </html>`;
 }
 
-/**
- * Remove import / export statements so code can run directly in Babel Standalone
- */
 function sanitizeComponentCode(code) {
+  if (!code) return '';
   return code
-    .replace(/import\s+.*?from\s+['"].*?['"];?/g, '') // remove import statements
+    .replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
     .replace(/import\s+['"].*?['"];?/g, '')
-    .replace(/export\s+default\s+function\s+/g, 'function ') // convert export default function App to function App
+    .replace(/export\s+default\s+function\s+/g, 'function ')
     .replace(/export\s+default\s+/g, 'const DefaultExport = ')
     .replace(/export\s+/g, '');
 }
