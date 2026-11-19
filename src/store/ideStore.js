@@ -3,28 +3,74 @@ import { initialFiles, saveVFS, loadVFS } from '../services/vfsStorage';
 import { loadChatHistory, saveChatHistory, clearChatHistory, initialMessages } from '../services/chatStorage';
 
 export const useIDEStore = create((set, get) => ({
-  // Active Navigation Mode: 'chat' | 'files' | 'code' | 'preview'
-  activeTab: 'chat',
+  // Navigation & Workspace Layout
+  activeTab: 'chat', // 'chat' | 'files' | 'code' | 'preview' | 'review'
   setActiveTab: (tab) => set({ activeTab: tab }),
 
-  // Mobile / Desktop Viewport Mode detection
-  isMobile: true,
+  isMobile: window.innerWidth < 1024,
   setIsMobile: (val) => set({ isMobile: val }),
 
-  // Current Project Metadata
+  // Desktop Panel Sizing & Split Visibility
+  panelSizes: {
+    sidebar: 240,
+    chat: 380,
+    editor: 450,
+    preview: 400,
+    terminalHeight: 180
+  },
+  setPanelSizes: (sizes) => set((state) => ({ panelSizes: { ...state.panelSizes, ...sizes } })),
+
+  // Active Multi-Agent State
+  currentAgent: {
+    role: 'idle', // 'planner' | 'developer' | 'reviewer' | 'debugger' | 'tester' | 'idle'
+    name: 'Vibe Architect',
+    status: 'Ready',
+    currentTask: '',
+    progress: 0,
+    activeTool: null
+  },
+  setCurrentAgent: (agent) => set((state) => ({ currentAgent: { ...state.currentAgent, ...agent } })),
+
+  // Cursor-Style Pending Code Changes & Diffs
+  pendingDiffs: [], // Array of { id, path, oldContent, newContent, diffSummary, status: 'pending'|'accepted'|'rejected', comments: [] }
+  addPendingDiff: (diff) => set((state) => ({ pendingDiffs: [...state.pendingDiffs, diff] })),
+  clearPendingDiffs: () => set({ pendingDiffs: [] }),
+  resolveDiff: (id, accept = true) => {
+    const diff = get().pendingDiffs.find((d) => d.id === id);
+    if (!diff) return;
+
+    if (accept) {
+      get().updateFileContent(diff.path, diff.newContent);
+    }
+    const updated = get().pendingDiffs.filter((d) => d.id !== id);
+    set({ pendingDiffs: updated });
+  },
+  acceptAllDiffs: () => {
+    const diffs = get().pendingDiffs;
+    diffs.forEach((d) => {
+      get().updateFileContent(d.path, d.newContent);
+    });
+    set({ pendingDiffs: [] });
+  },
+  rejectAllDiffs: () => {
+    set({ pendingDiffs: [] });
+  },
+
+  // Project Metadata
   currentProject: {
     id: 'proj_default',
     name: 'My Vibe Project',
-    description: 'React + Tailwind Web Application'
+    description: 'React 18 + Tailwind Multi-Component Application'
   },
   setCurrentProject: (proj) => set({ currentProject: proj }),
 
-  // AI Provider & Credentials Configuration (Default: Qwen 2.5 Coder)
+  // Universal AI Provider & Credentials Configuration
   aiConfig: {
-    provider: 'ollama',
+    provider: 'gemini', // 'gemini' | 'ollama' | 'openai' | 'groq' | 'anthropic'
     apiKey: '',
     customBaseUrl: 'http://127.0.0.1:11434',
-    model: 'qwen2.5-coder:1.5b'
+    model: 'gemini-3.5-flash',
+    thinkingBudget: 0
   },
   setAIConfig: (cfg) => set({ aiConfig: cfg }),
 
@@ -47,25 +93,24 @@ export const useIDEStore = create((set, get) => ({
     set({ messages: updated });
     saveChatHistory(updated);
   },
-
   updateStreamingMessage: (id, chunk) => {
     const updated = get().messages.map((m) => m.id === id ? { ...m, content: chunk } : m);
     set({ messages: updated });
     saveChatHistory(updated);
   },
-
   clearChat: async () => {
     const reset = await clearChatHistory();
     set({ messages: reset });
   },
 
-  // Development Phases State
+  // Development Roadmap State
   planningPhase: {
     isActive: false,
     isApproved: false,
     overview: '',
     techStack: [],
-    phases: []
+    phases: [],
+    fileBlueprint: []
   },
   setPlanningPhase: (plan) => set({ planningPhase: plan }),
 
@@ -144,6 +189,5 @@ export const useIDEStore = create((set, get) => ({
       ...state.previewState,
       lastError: null
     }
-  })),
+  }))
 }));
-

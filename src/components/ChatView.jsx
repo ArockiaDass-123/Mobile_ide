@@ -1,7 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useIDEStore } from '../store/ideStore';
-import { Plus, Mic, MicOff, ArrowUp, Sparkles, CheckCircle2, ChevronRight, Layers, Loader2, Trash2, ChevronDown } from 'lucide-react';
+import { Plus, Mic, MicOff, ArrowUp, Sparkles, CheckCircle2, ChevronRight, Layers, Loader2, Trash2, ChevronDown, Volume2, Copy, Check } from 'lucide-react';
 import { generateAppCode } from '../services/multiModelService';
+import { executeAIRequest } from '../services/universalAIProvider';
+import { memoryManager } from '../services/memoryService';
+import { executeMCPTool } from '../services/deviceMcpService';
+import { voiceAssistant } from '../services/voiceAssistant';
+import { AgentOrchestrator } from '../services/agentOrchestrator';
+import { searchWeb } from '../services/webSearchService';
 
 export default function ChatView() {
   const {
@@ -25,9 +31,10 @@ export default function ChatView() {
   const textareaRef = useRef(null);
 
   const availableModels = [
-    { provider: 'ollama', model: 'qwen2.5-coder:1.5b', label: 'Qwen 2.5 Coder (Fast & Local)' },
-    { provider: 'gemini', model: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
-    { provider: 'gemini', model: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
+    { provider: 'gemini', model: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Recommended)' },
+    { provider: 'gemini', model: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Fast)' },
+    { provider: 'ollama', model: 'deepseek-r1:latest', label: 'DeepSeek-R1 (Reasoning & Plan)' },
+    { provider: 'ollama', model: 'qwen2.5-coder:1.5b', label: 'Qwen 2.5 Coder (Local Fast)' },
     { provider: 'ollama', model: 'phi3:mini', label: 'Ollama phi3:mini' }
   ];
 
@@ -60,36 +67,48 @@ export default function ChatView() {
     }
   };
 
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [copiedMsgId, setCopiedMsgId] = useState(null);
+
+  const handleCopyMessage = (msgId, text) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      executeMCPTool('device_clipboard_write', { text });
+      setCopiedMsgId(msgId);
+      setTimeout(() => setCopiedMsgId(null), 2000);
+    }
+  };
+
   const toggleSpeechRecognition = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert('Speech recognition is not supported in this browser. Please use keyboard input.');
-      return;
-    }
-
     if (isListening) {
+      voiceAssistant.stopListening();
       setIsListening(false);
-      return;
+    } else {
+      setIsListening(true);
+      voiceAssistant.startListening({
+        onResult: (transcript) => {
+          setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          setIsListening(false);
+        },
+        onError: (err) => {
+          console.warn('Speech error:', err);
+          setIsListening(false);
+        },
+        onEnd: () => {
+          setIsListening(false);
+        }
+      });
     }
+  };
 
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => setIsListening(true);
-      recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
-        setIsListening(false);
-      };
-      recognition.onerror = () => setIsListening(false);
-      recognition.onend = () => setIsListening(false);
-
-      recognition.start();
-    } catch (e) {
-      setIsListening(false);
+  const handleSpeakText = (text) => {
+    if (isSpeaking) {
+      voiceAssistant.stopSpeaking();
+      setIsSpeaking(false);
+    } else {
+      setIsSpeaking(true);
+      voiceAssistant.speak(text);
+      setTimeout(() => setIsSpeaking(false), 8000);
     }
   };
 
@@ -127,30 +146,58 @@ export default function ChatView() {
 
     try {
       if (!isProjectCreationRequest(userText)) {
-        const reply = await generateAppCode({
+        // Incorporate LangChain conversational memory context
+        const contextMemory = memoryManager.getRecentContext();
+
+        // Perform real-time web search grounding if information query
+        updateStreamingMessage(streamMsgId, 'Searching the web for latest information...');
+        const webGrounding = await searchWeb(userText);
+
+        let augmentedPrompt = userText;
+        if (webGrounding) {
+          augmentedPrompt = `Real-time Web Search Results for "${userText}":\n${webGrounding}\n\nBased on these live search results, answer the user's question directly and concisely: "${userText}"`;
+        }
+
+        const fullPrompt = contextMemory
+          ? `Conversation Context:\n${contextMemory}\n\nUser: ${augmentedPrompt}\nAI:`
+          : augmentedPrompt;
+
+        // Execute AI with real-time Google Search grounding enabled
+        const reply = await executeAIRequest({
           provider: aiConfig.provider,
           model: aiConfig.model,
           apiKey: aiConfig.apiKey,
-          prompt: `You are an AI assistant. Reply to the user's greeting nicely in 1-2 sentences: "${userText}"`
+          customBaseUrl: aiConfig.customBaseUrl,
+          messages: [{ role: 'user', content: fullPrompt }],
+          enableWebSearch: true
         });
-        updateStreamingMessage(streamMsgId, reply || 'Hello! How can I help you build your application today?');
+
+        let finalReply = reply || 'Hello! How can I help you build your application today?';
+        if (webGrounding && !finalReply.includes('Sources from Google Search')) {
+          finalReply += `\n\n**🌐 Live Web Reference:**\n${webGrounding}`;
+        }
+
+        updateStreamingMessage(streamMsgId, finalReply);
+        await memoryManager.saveContext(userText, finalReply);
       } else {
+        // Haptic feedback via MCP
+        executeMCPTool('device_vibrate', { pattern: [80] });
+
         setPlanningPhase({
           isActive: true,
           isApproved: false,
           overview: userText,
           techStack: ['React 18', 'Tailwind CSS', `${currentSelected.label}`],
           phases: [
-            { id: 1, title: 'Phase 1: Project Setup & Structure', status: 'ready', description: 'Configure React components and layout.' },
-            { id: 2, title: 'Phase 2: UI & Features', status: 'pending', description: 'Build interactive cards and state.' },
-            { id: 3, title: 'Phase 3: Verification', status: 'pending', description: 'Test and launch preview.' }
+            { id: 1, title: 'Phase 1: Architecture & Data Model', status: 'ready', description: 'Design interactive state, models, and responsive layout.' },
+            { id: 2, title: 'Phase 2: UI Components & Interactions', status: 'pending', description: 'Build interactive cards, actions, and modern styling.' },
+            { id: 3, title: 'Phase 3: Sandbox Verification', status: 'pending', description: 'Mount React tree and test preview sandbox.' }
           ]
         });
 
-        updateStreamingMessage(
-          streamMsgId,
-          `I received your request to build: **"${userText}"** using **${currentSelected.label}**.\n\nReview the project roadmap below and tap **"Approve Plan & Begin Phase 1"** to generate the real code.`
-        );
+        const planNotice = `I received your request to build: **"${userText}"** using **${currentSelected.label}**.\n\nReview the project roadmap below and tap **"Approve Plan & Begin Phase 1"** to generate the real code.`;
+        updateStreamingMessage(streamMsgId, planNotice);
+        await memoryManager.saveContext(userText, planNotice);
       }
     } catch (err) {
       updateStreamingMessage(
@@ -181,37 +228,32 @@ export default function ChatView() {
     setIsStreaming(true);
 
     try {
-      const prompt = `Write a complete, single-file React component function App() for: "${userPrompt}".
-Use React and Tailwind CSS.
-Include interactive state (useState), beautiful cards, and clean modern design.
-Output ONLY JavaScript/JSX code. Start directly with:
-function App() { ... }`;
-
-      const generatedCode = await generateAppCode({
-        provider: aiConfig.provider,
-        model: aiConfig.model,
-        apiKey: aiConfig.apiKey,
-        prompt
+      // 1. Invoke Developer Agent to produce code diffs
+      const generatedFiles = await AgentOrchestrator.developProject({
+        prompt: userPrompt,
+        aiConfig
       });
 
-      if (generatedCode) {
-        updateFileContent('src/App.jsx', generatedCode);
+      setPlanningPhase({
+        ...planningPhase,
+        isApproved: true,
+        phases: planningPhase.phases.map((p) => ({ ...p, status: 'completed' }))
+      });
 
-        setPlanningPhase({
-          ...planningPhase,
-          isApproved: true,
-          phases: planningPhase.phases.map((p) => ({ ...p, status: 'completed' }))
-        });
+      updateStreamingMessage(
+        streamMsgId,
+        `🎉 **Developer Agent has implemented the code changes!**\n\n${generatedFiles.length} file(s) modified.\n\n👉 **Switching to "Review" to inspect Cursor-style diffs before applying!**`
+      );
 
-        updateStreamingMessage(
-          streamMsgId,
-          `🎉 **Application Generated Successfully!**\n\nCode written to \`src/App.jsx\`.\n\n👉 **Switching to "Preview" to see your running app!**`
-        );
+      // Haptic feedback via MCP
+      executeMCPTool('device_vibrate', { pattern: [100, 50, 100] });
 
-        setTimeout(() => {
-          setActiveTab('preview');
-        }, 800);
-      }
+      // Memory save
+      await memoryManager.saveContext(userPrompt, `Generated multi-file changes for ${userPrompt}`);
+
+      setTimeout(() => {
+        setActiveTab('review');
+      }, 1000);
     } catch (err) {
       updateStreamingMessage(streamMsgId, `⚠️ Generation failed: ${err.message}`);
     } finally {
@@ -247,19 +289,43 @@ function App() { ... }`;
             }`}
           >
             <div
-              className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+              className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed select-text ${
                 msg.role === 'user'
                   ? 'bg-blue-600 text-white rounded-br-xs'
                   : 'bg-gray-100/90 text-gray-800 rounded-bl-xs'
               }`}
             >
-              <div className="whitespace-pre-wrap">{msg.content}</div>
-              <div
-                className={`text-[10px] mt-1.5 ${
-                  msg.role === 'user' ? 'text-blue-200 text-right' : 'text-gray-400'
-                }`}
-              >
-                {msg.timestamp}
+              <div className="whitespace-pre-wrap select-text">{msg.content}</div>
+              <div className="flex items-center justify-between mt-1.5 gap-2">
+                <div className="flex items-center gap-1">
+                  {msg.role === 'assistant' && (
+                    <button
+                      onClick={() => handleSpeakText(msg.content)}
+                      className="p-1 hover:bg-gray-200/60 rounded text-gray-500 hover:text-gray-700 transition cursor-pointer"
+                      title="Read aloud"
+                    >
+                      <Volume2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleCopyMessage(msg.id, msg.content)}
+                    className="p-1 hover:bg-black/10 rounded transition cursor-pointer text-gray-500 hover:text-gray-700"
+                    title="Copy message"
+                  >
+                    {copiedMsgId === msg.id ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+                <div
+                  className={`text-[10px] ${
+                    msg.role === 'user' ? 'text-blue-200 text-right w-full' : 'text-gray-400'
+                  }`}
+                >
+                  {msg.timestamp}
+                </div>
               </div>
             </div>
           </div>

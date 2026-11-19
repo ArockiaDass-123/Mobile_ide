@@ -11,13 +11,24 @@ export default function PreviewView() {
 
   const rawCode = files['src/App.jsx']?.content || '';
 
-  // Clean code to ensure standalone React 18 execution
+  // Robust code cleaner to extract executable React component
   const cleanCode = (code) => {
     if (!code) return '';
     let c = code;
-    const match = c.match(/```(?:jsx|javascript|tsx|js)?\s*([\s\S]*?)```/);
-    if (match) c = match[1];
 
+    // 1. Extract markdown code blocks if present
+    const codeBlockMatch = c.match(/```(?:jsx|javascript|tsx|js)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      c = codeBlockMatch[1];
+    } else {
+      // If no code block, but response has explanatory text before/after, isolate the App function
+      const funcMatch = c.match(/((?:function\s+App|const\s+App\s*=\s*|class\s+App)[\s\S]*)/);
+      if (funcMatch) {
+        c = funcMatch[1];
+      }
+    }
+
+    // 2. Strip imports and exports that fail in standalone browser Babel
     return c
       .replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
       .replace(/import\s+['"].*?['"];?/g, '')

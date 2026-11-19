@@ -5,6 +5,7 @@ import ChatView from './components/ChatView';
 import FileExplorer from './components/FileExplorer';
 import CodeEditor from './components/CodeEditor';
 import PreviewView from './components/PreviewView';
+import DiffViewer from './components/DiffViewer';
 
 export default function App() {
   const { activeTab, initVFS, initChatHistory } = useIDEStore();
@@ -26,6 +27,7 @@ export default function App() {
         {activeTab === 'files' && <FileExplorer />}
         {activeTab === 'code' && <CodeEditor />}
         {activeTab === 'preview' && <PreviewView />}
+        {activeTab === 'review' && <DiffViewer />}
       </main>
     </div>
   );

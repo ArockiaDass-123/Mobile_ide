@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useIDEStore } from '../store/ideStore';
-import { MessageSquare, FolderTree, Code, Eye, Sparkles, Download, Cpu, FolderKanban } from 'lucide-react';
+import { MessageSquare, FolderTree, Code, Eye, Sparkles, Download, Cpu, GitCommit } from 'lucide-react';
 import AISettingsModal from './AISettingsModal';
 import ProjectModal from './ProjectModal';
 
 export default function Header() {
-  const { activeTab, setActiveTab, currentProject, aiConfig } = useIDEStore();
+  const { activeTab, setActiveTab, currentProject, aiConfig, pendingDiffs, currentAgent } = useIDEStore();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProjectOpen, setIsProjectOpen] = useState(false);
 
@@ -13,7 +13,8 @@ export default function Header() {
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'files', label: 'Files', icon: FolderTree },
     { id: 'code', label: 'Code', icon: Code },
-    { id: 'preview', label: 'Preview', icon: Eye }
+    { id: 'preview', label: 'Preview', icon: Eye },
+    { id: 'review', label: 'Review', icon: GitCommit, badge: pendingDiffs.length }
   ];
 
   return (
@@ -54,6 +55,11 @@ export default function Header() {
             >
               <Icon className="w-3.5 h-3.5" />
               <span className="hidden md:inline">{item.label}</span>
+              {Boolean(item.badge) && (
+                <span className="ml-1 px-1.5 py-0.2 bg-blue-600 text-white rounded-full text-[9px] font-bold">
+                  {item.badge}
+                </span>
+              )}
             </button>
           );
         })}
