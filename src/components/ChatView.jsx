@@ -31,11 +31,10 @@ export default function ChatView() {
   const textareaRef = useRef(null);
 
   const availableModels = [
-    { provider: 'gemini', model: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Recommended)' },
-    { provider: 'gemini', model: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Fast)' },
-    { provider: 'ollama', model: 'deepseek-r1:latest', label: 'DeepSeek-R1 (Reasoning & Plan)' },
-    { provider: 'ollama', model: 'qwen2.5-coder:1.5b', label: 'Qwen 2.5 Coder (Local Fast)' },
-    { provider: 'ollama', model: 'phi3:mini', label: 'Ollama phi3:mini' }
+    { provider: 'gemini', model: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Cloud - Fast & Free)' },
+    { provider: 'gemini', model: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (High Speed)' },
+    { provider: 'ollama', model: 'qwen2.5-coder:1.5b', label: 'Qwen 2.5 Coder (Local Ollama Installed)' },
+    { provider: 'ollama', model: 'phi3:mini', label: 'Phi-3 Mini (Local Ollama Installed)' }
   ];
 
   const currentSelected = availableModels.find(
@@ -228,11 +227,20 @@ export default function ChatView() {
     setIsStreaming(true);
 
     try {
-      // 1. Invoke Developer Agent to produce code diffs
+      // 1. Invoke Developer Agent to produce code
       const generatedFiles = await AgentOrchestrator.developProject({
         prompt: userPrompt,
         aiConfig
       });
+
+      // 2. Immediately write the generated code to the project files (App.jsx)
+      if (generatedFiles && generatedFiles.length > 0) {
+        generatedFiles.forEach((file) => {
+          if (file.path && file.content) {
+            updateFileContent(file.path, file.content);
+          }
+        });
+      }
 
       setPlanningPhase({
         ...planningPhase,
@@ -242,18 +250,19 @@ export default function ChatView() {
 
       updateStreamingMessage(
         streamMsgId,
-        `🎉 **Developer Agent has implemented the code changes!**\n\n${generatedFiles.length} file(s) modified.\n\n👉 **Switching to "Review" to inspect Cursor-style diffs before applying!**`
+        `🎉 **Code generated and updated successfully!**\n\nCode written to \`src/App.jsx\`.\n\n👉 **Switching to "Preview" to run your live app!**`
       );
 
       // Haptic feedback via MCP
       executeMCPTool('device_vibrate', { pattern: [100, 50, 100] });
 
       // Memory save
-      await memoryManager.saveContext(userPrompt, `Generated multi-file changes for ${userPrompt}`);
+      await memoryManager.saveContext(userPrompt, `Generated code for ${userPrompt}`);
 
+      // Auto-switch directly to Live Preview so the user sees the running app immediately
       setTimeout(() => {
-        setActiveTab('review');
-      }, 1000);
+        setActiveTab('preview');
+      }, 700);
     } catch (err) {
       updateStreamingMessage(streamMsgId, `⚠️ Generation failed: ${err.message}`);
     } finally {

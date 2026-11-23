@@ -19,8 +19,7 @@ export const PROVIDER_CATALOG = [
     name: 'Ollama (Local / Termux)',
     models: [
       { id: 'qwen2.5-coder:1.5b', name: 'Qwen 2.5 Coder 1.5B (Fast Local)', context: 32768, thinking: false },
-      { id: 'phi3:mini', name: 'Phi-3 Mini (Dense Reasoning)', context: 128000, thinking: false },
-      { id: 'deepseek-r1:latest', name: 'DeepSeek-R1 (Elite Planning & Reasoning)', context: 65536, thinking: true }
+      { id: 'phi3:mini', name: 'Phi-3 Mini (Dense Reasoning)', context: 128000, thinking: false }
     ],
     defaultBaseUrl: 'http://127.0.0.1:11434'
   },

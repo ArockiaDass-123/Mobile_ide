@@ -79,17 +79,20 @@ Return a STRICT JSON response (no markdown, no code fences, only valid JSON) mat
       activeTool: 'write_code'
     });
 
-    const devPrompt = `You are a Senior Full-Stack Developer.
-Implement the application for: "${prompt}".
-Rules:
-1. Write a complete, highly-polished React 18 component using Tailwind CSS.
-2. DO NOT use external CSS files like './App.css'.
-3. Include real, interactive state (useState), filter/cart logic, animations, and high design aesthetic.
-4. Output your file in this exact tool format:
+    const devPrompt = `You are a Senior React Developer.
+Task: Write the complete, production-ready React component App() for: "${prompt}".
+Requirements:
+1. Write a complete function App() using React and Tailwind CSS.
+2. DO NOT import React, useState, or any packages (React hooks are provided globally in the sandbox).
+3. DO NOT import external CSS files like './App.css'.
+4. Include interactive state, click handlers, and modern Tailwind design.
+5. Output ONLY the code inside:
 <<<TOOL_CALL:create_file>>>
-{"path": "src/App.jsx", "content": "..."}
+{"path": "src/App.jsx", "content": "function App() {\\n  return (<div className=\\"min-h-screen bg-slate-900 text-white p-6\\">...</div>);\\n}\\nexport default App;"}
 <<<END_TOOL_CALL>>>
-Start directly with the code block.`;
+If you cannot output JSON, simply write the code directly starting with:
+function App() { ... }
+export default App;`;
 
     const codeResult = await executeAIRequest({
       provider: aiConfig.provider,

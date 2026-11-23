@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useIDEStore } from '../store/ideStore';
-import { MessageSquare, FolderTree, Code, Eye, Sparkles, Download, Cpu, GitCommit } from 'lucide-react';
+import { MessageSquare, FolderTree, Code, Eye, Sparkles, Download, Cpu, GitCommit, Terminal as TerminalIcon } from 'lucide-react';
 import AISettingsModal from './AISettingsModal';
 import ProjectModal from './ProjectModal';
 
@@ -11,6 +11,7 @@ export default function Header() {
 
   const navItems = [
     { id: 'chat', label: 'Chat', icon: MessageSquare },
+    { id: 'terminal', label: 'Termux', icon: TerminalIcon },
     { id: 'files', label: 'Files', icon: FolderTree },
     { id: 'code', label: 'Code', icon: Code },
     { id: 'preview', label: 'Preview', icon: Eye },
@@ -32,7 +33,7 @@ export default function Header() {
             {currentProject.name}
           </span>
           <span className="text-[9px] sm:text-[10px] text-gray-400 font-mono hidden xs:inline truncate">
-            Vibe IDE
+            JARVIS IDE
           </span>
         </div>
       </div>
