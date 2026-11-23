@@ -3,13 +3,15 @@ import { useIDEStore } from '../store/ideStore';
 import { RotateCw, Smartphone, Monitor, AlertTriangle } from 'lucide-react';
 
 export default function PreviewView() {
-  const { files } = useIDEStore();
+  const { files, activeFile } = useIDEStore();
   const [deviceMode, setDeviceMode] = useState('mobile');
   const [reloadTrigger, setReloadTrigger] = useState(0);
   const [previewError, setPreviewError] = useState(null);
   const iframeRef = useRef(null);
 
-  const rawCode = files['src/App.jsx']?.content || '';
+  // Look for entry file: App.jsx, src/App.jsx, index.html, or currently active file
+  const activeContent = files[activeFile]?.content;
+  const rawCode = files['App.jsx']?.content || files['src/App.jsx']?.content || files['index.html']?.content || activeContent || '';
 
   // Robust code cleaner to extract executable React component
   const cleanCode = (code) => {
@@ -29,7 +31,7 @@ export default function PreviewView() {
     }
 
     // 2. Strip imports and exports that fail in standalone browser Babel
-    return c
+    c = c
       .replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
       .replace(/import\s+['"].*?['"];?/g, '')
       .replace(/export\s+default\s+function\s+App/g, 'function App')
@@ -37,13 +39,61 @@ export default function PreviewView() {
       .replace(/export\s+default\s+/g, 'const DefaultExport = ')
       .replace(/export\s+/g, '')
       .trim();
+
+    // 3. Auto-wrap bare JSX tags like <h1>hello world</h1> into a valid function App() if user or model wrote bare JSX
+    if (!c.includes('function App') && !c.includes('const App') && !c.includes('class App')) {
+      if (c.trim().startsWith('<') || c.includes('</')) {
+        c = `function App() {\n  return (\n    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white p-6">\n      ${c}\n    </div>\n  );\n}`;
+      }
+    }
+
+    return c;
   };
 
   const processedCode = cleanCode(rawCode);
 
+  const isHtmlDocument = rawCode.trim().toLowerCase().startsWith('<!doctype html') || rawCode.trim().toLowerCase().startsWith('<html');
+
   useEffect(() => {
     setPreviewError(null);
 
+    // CASE 1: If the user/model generated a standard full HTML/CSS page (<!DOCTYPE html>)
+    if (isHtmlDocument) {
+      if (iframeRef.current) {
+        let htmlToRender = rawCode;
+
+        // Inline CSS from Virtual File System (e.g. style.css or src/style.css)
+        const cssFile = files['style.css']?.content || files['src/style.css']?.content || files['src/index.css']?.content || '';
+        if (cssFile) {
+          htmlToRender = htmlToRender.replace(/<link\s+rel=["']stylesheet["']\s+href=["'].*?style\.css["']\s*\/?>/i, `<style>${cssFile}</style>`);
+          if (!htmlToRender.includes(cssFile)) {
+            htmlToRender = htmlToRender.replace('</head>', `<style>${cssFile}</style></head>`);
+          }
+        }
+
+        // Inline JavaScript from Virtual File System (e.g. script.js or src/script.js)
+        const jsFile = files['script.js']?.content || files['src/script.js']?.content || '';
+        if (jsFile) {
+          htmlToRender = htmlToRender.replace(/<script\s+src=["'].*?script\.js["']\s*><\/script>/i, `<script>${jsFile}</script>`);
+          if (!htmlToRender.includes(jsFile)) {
+            htmlToRender = htmlToRender.replace('</body>', `<script>${jsFile}</script></body>`);
+          }
+        }
+
+        // Ensure visible fallback styles
+        if (!htmlToRender.includes('<style>')) {
+          htmlToRender = htmlToRender.replace('</head>', '<style>body { margin:0; padding:16px; font-family:sans-serif; background:#fff; color:#111; }</style></head>');
+        }
+
+        const blob = new Blob([htmlToRender], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        iframeRef.current.src = url;
+        return () => URL.revokeObjectURL(url);
+      }
+      return;
+    }
+
+    // CASE 2: React 18 JSX component
     const fullHTML = `<!DOCTYPE html>
 <html>
 <head>
@@ -124,7 +174,7 @@ export default function PreviewView() {
     if (iframeRef.current) {
       iframeRef.current.srcdoc = fullHTML;
     }
-  }, [processedCode, reloadTrigger]);
+  }, [processedCode, rawCode, isHtmlDocument, reloadTrigger]);
 
   useEffect(() => {
     const handleMsg = (e) => {
@@ -143,7 +193,7 @@ export default function PreviewView() {
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${previewError ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`} />
           <span className="font-mono text-gray-700 font-medium">
-            {previewError ? 'Preview Syntax Issue' : 'Live Preview'}
+            {previewError ? `Error: ${previewError.slice(0, 45)}...` : 'Live Preview Running'}
           </span>
         </div>
 
@@ -187,7 +237,7 @@ export default function PreviewView() {
           <iframe
             ref={iframeRef}
             title="App Preview"
-            sandbox="allow-scripts allow-modals"
+            sandbox="allow-scripts allow-modals allow-same-origin"
             className="w-full h-full border-none bg-white"
           />
         </div>
