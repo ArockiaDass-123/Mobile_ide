@@ -49,3 +49,14 @@ jobs:
         with:
           name: Vibe-IDE-Debug-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Release APK Directly
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v1.0.0-apk
+          name: "JARVIS AI Mobile IDE - Direct APK Download"
+          body: "Direct 1-click Android APK download. Tap app-debug.apk below to download directly to your mobile device!"
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
