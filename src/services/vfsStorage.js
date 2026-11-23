@@ -1,4 +1,5 @@
 import { get, set, del } from 'idb-keyval';
+import { cleanFilePath, sanitizeCodeContent } from './multiFileParser';
 
 const VFS_STORAGE_KEY = 'vibe_ide_vfs_files';
 
@@ -15,13 +16,34 @@ export const initialFiles = {
 };
 
 /**
- * Load Virtual Filesystem from IndexedDB or return default starter files
+ * Load Virtual Filesystem from IndexedDB and auto-heal any legacy corrupted files
  */
 export async function loadVFS() {
   try {
     const saved = await get(VFS_STORAGE_KEY);
     if (saved && Object.keys(saved).length > 0) {
-      return saved;
+      const sanitized = {};
+      let changed = false;
+
+      for (const [rawPath, fileObj] of Object.entries(saved)) {
+        const cleanPath = cleanFilePath(rawPath);
+        const originalContent = fileObj?.content || '';
+        const cleanContent = sanitizeCodeContent(originalContent);
+
+        if (cleanPath !== rawPath || cleanContent !== originalContent) {
+          changed = true;
+        }
+
+        sanitized[cleanPath] = {
+          content: cleanContent
+        };
+      }
+
+      if (changed) {
+        await set(VFS_STORAGE_KEY, sanitized);
+      }
+
+      return sanitized;
     }
   } catch (e) {
     console.warn('Failed to load VFS from IndexedDB:', e);

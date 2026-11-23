@@ -233,13 +233,17 @@ export default function ChatView() {
         aiConfig
       });
 
-      // 2. Immediately write the generated code to the project files (App.jsx)
+      // 2. Write all generated files into the Virtual File System (VFS)
       if (generatedFiles && generatedFiles.length > 0) {
         generatedFiles.forEach((file) => {
           if (file.path && file.content) {
             updateFileContent(file.path, file.content);
           }
         });
+
+        // Set the primary generated file as active in the Code Editor
+        const primaryFile = generatedFiles[0].path;
+        useIDEStore.getState().setActiveFile(primaryFile);
       }
 
       setPlanningPhase({
@@ -248,16 +252,18 @@ export default function ChatView() {
         phases: planningPhase.phases.map((p) => ({ ...p, status: 'completed' }))
       });
 
+      const fileSummaryList = generatedFiles.map(f => `• \`${f.path}\` (${f.content.length} bytes)`).join('\n');
+
       updateStreamingMessage(
         streamMsgId,
-        `🎉 **Code generated and updated successfully!**\n\nCode written to \`src/App.jsx\`.\n\n👉 **Switching to "Preview" to run your live app!**`
+        `🎉 **Project Generated Successfully!**\n\n**Created/Updated Files:**\n${fileSummaryList}\n\n👉 **Live Preview updated automatically! Tap "Code" to inspect files or "Preview" to test.**`
       );
 
       // Haptic feedback via MCP
       executeMCPTool('device_vibrate', { pattern: [100, 50, 100] });
 
       // Memory save
-      await memoryManager.saveContext(userPrompt, `Generated code for ${userPrompt}`);
+      await memoryManager.saveContext(userPrompt, `Generated ${generatedFiles.length} files: ${generatedFiles.map(f=>f.path).join(', ')}`);
 
       // Auto-switch directly to Live Preview so the user sees the running app immediately
       setTimeout(() => {

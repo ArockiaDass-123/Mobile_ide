@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useIDEStore } from '../store/ideStore';
 import { RotateCw, Smartphone, Monitor, AlertTriangle } from 'lucide-react';
+import { sanitizeCodeContent } from '../services/multiFileParser';
 
 export default function PreviewView() {
   const { files, activeFile } = useIDEStore();
@@ -9,14 +10,20 @@ export default function PreviewView() {
   const [previewError, setPreviewError] = useState(null);
   const iframeRef = useRef(null);
 
-  // Look for entry file: App.jsx, src/App.jsx, index.html, or currently active file
-  const activeContent = files[activeFile]?.content;
-  const rawCode = files['App.jsx']?.content || files['src/App.jsx']?.content || files['index.html']?.content || activeContent || '';
+  // Look for entry file: active file if it's an app/html file, or src/App.jsx, App.jsx, index.html
+  const getEntryCode = () => {
+    if (activeFile && (activeFile.includes('App.') || activeFile.endsWith('.html'))) {
+      if (files[activeFile]?.content) return files[activeFile].content;
+    }
+    return files['src/App.jsx']?.content || files['App.jsx']?.content || files['index.html']?.content || files[activeFile]?.content || '';
+  };
+
+  const rawCode = getEntryCode();
 
   // Robust code cleaner to extract executable React component
   const cleanCode = (code) => {
     if (!code) return '';
-    let c = code;
+    let c = sanitizeCodeContent(code);
 
     // 1. Extract markdown code blocks if present
     const codeBlockMatch = c.match(/```(?:jsx|javascript|tsx|js)?\s*([\s\S]*?)```/);
@@ -40,7 +47,13 @@ export default function PreviewView() {
       .replace(/export\s+/g, '')
       .trim();
 
-    // 3. Auto-wrap bare JSX tags like <h1>hello world</h1> into a valid function App() if user or model wrote bare JSX
+    // 3. Strip any residual tool markers or quotes
+    c = c
+      .replace(/<<<TOOL_CALL:[a-zA-Z0-9_]+>>>/g, '')
+      .replace(/<<<END_TOOL_CALL>>>/g, '')
+      .trim();
+
+    // 4. Auto-wrap bare JSX tags like <h1>hello world</h1> into a valid function App() if user or model wrote bare JSX
     if (!c.includes('function App') && !c.includes('const App') && !c.includes('class App')) {
       if (c.trim().startsWith('<') || c.includes('</')) {
         c = `function App() {\n  return (\n    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white p-6">\n      ${c}\n    </div>\n  );\n}`;
@@ -50,45 +63,52 @@ export default function PreviewView() {
     return c;
   };
 
-  const processedCode = cleanCode(rawCode);
+  const trimmedRaw = (rawCode || '').trim();
+  const isHtmlDocument = trimmedRaw.toLowerCase().startsWith('<!doctype html') || 
+                         trimmedRaw.toLowerCase().startsWith('<html') ||
+                         (trimmedRaw.toLowerCase().includes('<head>') && trimmedRaw.toLowerCase().includes('<body>'));
 
-  const isHtmlDocument = rawCode.trim().toLowerCase().startsWith('<!doctype html') || rawCode.trim().toLowerCase().startsWith('<html');
+  const processedCode = cleanCode(rawCode);
 
   useEffect(() => {
     setPreviewError(null);
 
-    // CASE 1: If the user/model generated a standard full HTML/CSS page (<!DOCTYPE html>)
+    // CASE 1: Standard full HTML/CSS page
     if (isHtmlDocument) {
       if (iframeRef.current) {
-        let htmlToRender = rawCode;
+        let htmlToRender = trimmedRaw;
 
-        // Inline CSS from Virtual File System (e.g. style.css or src/style.css)
+        // Inline CSS from Virtual File System (e.g. style.css, src/style.css, index.css)
         const cssFile = files['style.css']?.content || files['src/style.css']?.content || files['src/index.css']?.content || '';
         if (cssFile) {
-          htmlToRender = htmlToRender.replace(/<link\s+rel=["']stylesheet["']\s+href=["'].*?style\.css["']\s*\/?>/i, `<style>${cssFile}</style>`);
-          if (!htmlToRender.includes(cssFile)) {
-            htmlToRender = htmlToRender.replace('</head>', `<style>${cssFile}</style></head>`);
+          if (htmlToRender.includes('style.css')) {
+            htmlToRender = htmlToRender.replace(/<link\s+rel=["']stylesheet["']\s+href=["'][^"']*style\.css["']\s*\/?>/i, `<style>\n${cssFile}\n</style>`);
+          } else if (htmlToRender.includes('</head>')) {
+            htmlToRender = htmlToRender.replace('</head>', `<style>\n${cssFile}\n</style></head>`);
+          } else {
+            htmlToRender = `<style>\n${cssFile}\n</style>` + htmlToRender;
           }
         }
 
-        // Inline JavaScript from Virtual File System (e.g. script.js or src/script.js)
+        // Inline JavaScript from Virtual File System (e.g. script.js, src/script.js)
         const jsFile = files['script.js']?.content || files['src/script.js']?.content || '';
         if (jsFile) {
-          htmlToRender = htmlToRender.replace(/<script\s+src=["'].*?script\.js["']\s*><\/script>/i, `<script>${jsFile}</script>`);
-          if (!htmlToRender.includes(jsFile)) {
-            htmlToRender = htmlToRender.replace('</body>', `<script>${jsFile}</script></body>`);
+          if (htmlToRender.includes('script.js')) {
+            htmlToRender = htmlToRender.replace(/<script\s+src=["'][^"']*script\.js["']\s*><\/script>/i, `<script>\n${jsFile}\n</script>`);
+          } else if (htmlToRender.includes('</body>')) {
+            htmlToRender = htmlToRender.replace('</body>', `<script>\n${jsFile}\n</script></body>`);
+          } else {
+            htmlToRender += `<script>\n${jsFile}\n</script>`;
           }
         }
 
         // Ensure visible fallback styles
         if (!htmlToRender.includes('<style>')) {
-          htmlToRender = htmlToRender.replace('</head>', '<style>body { margin:0; padding:16px; font-family:sans-serif; background:#fff; color:#111; }</style></head>');
+          htmlToRender = htmlToRender.replace('</head>', '<style>body { margin:0; padding:16px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:#fff; color:#111; }</style></head>');
         }
 
-        const blob = new Blob([htmlToRender], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        iframeRef.current.src = url;
-        return () => URL.revokeObjectURL(url);
+        iframeRef.current.removeAttribute('src');
+        iframeRef.current.srcdoc = htmlToRender;
       }
       return;
     }
@@ -172,9 +192,10 @@ export default function PreviewView() {
 </html>`;
 
     if (iframeRef.current) {
+      iframeRef.current.removeAttribute('src');
       iframeRef.current.srcdoc = fullHTML;
     }
-  }, [processedCode, rawCode, isHtmlDocument, reloadTrigger]);
+  }, [processedCode, trimmedRaw, isHtmlDocument, reloadTrigger]);
 
   useEffect(() => {
     const handleMsg = (e) => {

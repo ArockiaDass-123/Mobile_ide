@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { initialFiles, saveVFS, loadVFS } from '../services/vfsStorage';
 import { loadChatHistory, saveChatHistory, clearChatHistory, initialMessages } from '../services/chatStorage';
+import { cleanFilePath, sanitizeCodeContent } from '../services/multiFileParser';
 
 export const useIDEStore = create((set, get) => ({
   // Navigation & Workspace Layout
@@ -125,20 +126,32 @@ export const useIDEStore = create((set, get) => ({
   },
 
   updateFileContent: (path, content) => {
+    const cleanPath = cleanFilePath(path);
+    const cleanContent = sanitizeCodeContent(content);
     const newFiles = {
       ...get().files,
-      [path]: { content }
+      [cleanPath]: { content: cleanContent }
     };
-    set({ files: newFiles });
+    if (cleanPath === 'src/App.jsx' && newFiles['App.jsx']) {
+      delete newFiles['App.jsx'];
+    }
+    const currentActive = get().activeFile;
+    const nextActive = (currentActive === 'App.jsx' && cleanPath === 'src/App.jsx') ? 'src/App.jsx' : currentActive;
+    set({ files: newFiles, activeFile: nextActive });
     saveVFS(newFiles);
   },
 
   createFile: (path, content = '') => {
+    const cleanPath = cleanFilePath(path);
+    const cleanContent = sanitizeCodeContent(content);
     const newFiles = {
       ...get().files,
-      [path]: { content }
+      [cleanPath]: { content: cleanContent }
     };
-    set({ files: newFiles, activeFile: path });
+    if (cleanPath === 'src/App.jsx' && newFiles['App.jsx']) {
+      delete newFiles['App.jsx'];
+    }
+    set({ files: newFiles, activeFile: cleanPath });
     saveVFS(newFiles);
   },
 

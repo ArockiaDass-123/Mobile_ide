@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useIDEStore } from '../store/ideStore';
 import { Check, X, CheckCheck, XCircle, FileCode, ShieldAlert, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
+import { sanitizeCodeContent, cleanFilePath } from '../services/multiFileParser';
 
 export default function DiffViewer() {
   const { pendingDiffs, resolveDiff, acceptAllDiffs, rejectAllDiffs, setActiveTab } = useIDEStore();
@@ -29,8 +30,10 @@ export default function DiffViewer() {
   const activeDiff = pendingDiffs.find((d) => d.id === selectedDiffId) || pendingDiffs[0];
 
   // Simple line-by-line diff calculation
-  const oldLines = (activeDiff.oldContent || '').split('\n');
-  const newLines = (activeDiff.newContent || '').split('\n');
+  const cleanOld = sanitizeCodeContent(activeDiff.oldContent || '');
+  const cleanNew = sanitizeCodeContent(activeDiff.newContent || '');
+  const oldLines = cleanOld.split('\n');
+  const newLines = cleanNew.split('\n');
 
   return (
     <div className="flex flex-col h-[calc(100dvh-3.5rem)] bg-white max-w-6xl mx-auto w-full select-none">
